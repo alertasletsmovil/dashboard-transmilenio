@@ -1,0 +1,656 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Demanda diaria TransMilenio</title>
+<style>
+  .viz-root {
+    color-scheme: light;
+    --page: #f4f4f2;
+    --surface-1: #fcfcfb;
+    --surface-2: #f0efec;
+    --border: #e2e1dc;
+    --grid: #ebeae6;
+    --text-primary: #0b0b0b;
+    --text-secondary: #52514e;
+    --text-muted: #77766f;
+    --accent: #2a78d6;
+    --series-1: #2a78d6;
+    --series-2: #eb6834;
+    --series-3: #1baf7a;
+    --critical: #c62828;
+  }
+  @media (prefers-color-scheme: dark) {
+    .viz-root {
+      color-scheme: dark;
+      --page: #121211;
+      --surface-1: #1a1a19;
+      --surface-2: #252523;
+      --border: #34342f;
+      --grid: #2a2a27;
+      --text-primary: #f0efec;
+      --text-secondary: #c3c2b7;
+      --text-muted: #96958c;
+      --accent: #3987e5;
+      --series-1: #3987e5;
+      --series-2: #d95926;
+      --series-3: #199e70;
+      --critical: #e66767;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; }
+  .viz-root {
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    background: var(--page); color: var(--text-primary);
+    min-height: 100vh; padding: 24px clamp(12px, 3vw, 40px) 48px;
+    font-variant-numeric: tabular-nums;
+  }
+  nav { display: flex; gap: 4px; margin-bottom: 14px; }
+  nav a { padding: 6px 12px; border-radius: 8px; text-decoration: none; color: var(--text-secondary); font-size: 14px; }
+  nav a.activo { background: var(--surface-1); color: var(--text-primary); border: 1px solid var(--border); font-weight: 600; }
+  header h1 { font-size: 22px; margin: 0 0 4px; font-weight: 650; }
+  header p { margin: 0; color: var(--text-secondary); font-size: 13px; }
+  .filtros { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 20px 0 16px; }
+  .filtros .sep { width: 1px; height: 24px; background: var(--border); margin: 0 4px; }
+  button, select, input { font: inherit; color: inherit; }
+  .chip {
+    border: 1px solid var(--border); background: var(--surface-1); border-radius: 8px;
+    padding: 6px 10px; font-size: 13px; cursor: pointer; display: inline-flex; gap: 6px; align-items: center;
+  }
+  .chip:hover { background: var(--surface-2); }
+  .chip.activo { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+  .chip .n { background: var(--accent); color: #fff; border-radius: 10px; padding: 0 6px; font-size: 11px; font-weight: 600; }
+  .chip.limpiar { border-style: dashed; color: var(--text-secondary); }
+  .rango { position: relative; }
+  .panel {
+    position: absolute; z-index: 20; top: calc(100% + 6px); left: 0; min-width: 280px; max-width: 360px;
+    background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px;
+    box-shadow: 0 8px 28px rgba(0,0,0,.18); padding: 8px; display: none;
+  }
+  .panel.abierto { display: block; }
+  .panel input[type=search], .panel input[type=date] {
+    width: 100%; padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface-1); margin-bottom: 6px;
+  }
+  .panel .lista { max-height: 320px; overflow: auto; }
+  .panel label, .panel .preset {
+    display: flex; gap: 8px; align-items: center; padding: 5px 6px; border-radius: 6px; font-size: 13px; cursor: pointer;
+    width: 100%; border: 0; background: none; text-align: left;
+  }
+  .panel label:hover, .panel .preset:hover { background: var(--surface-2); }
+  .panel label .v { margin-left: auto; color: var(--text-muted); font-size: 12px; }
+  .panel .preset .check { width: 16px; font-weight: 700; color: var(--accent); }
+  .panel .pie { border-top: 1px solid var(--border); margin-top: 6px; padding-top: 6px; display: flex; gap: 6px; justify-content: space-between; font-size: 12px; color: var(--text-muted); }
+  .panel .pie button { border: 0; background: none; color: var(--accent); cursor: pointer; padding: 2px 4px; }
+  .panel .fechas { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  .panel .fechas span { font-size: 11px; color: var(--text-muted); }
+  .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-bottom: 12px; }
+  .card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 12px; padding: 16px; }
+  .kpi .t { font-size: 12px; color: var(--text-secondary); }
+  .kpi .v { font-size: 28px; font-weight: 650; margin-top: 4px; letter-spacing: -.01em; }
+  .kpi .s { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+  .grid2 { display: grid; grid-template-columns: 1.6fr 1fr; gap: 12px; margin-bottom: 12px; }
+  @media (max-width: 900px) { .grid2 { grid-template-columns: 1fr; } }
+  .card h2 { font-size: 15px; margin: 0; font-weight: 620; }
+  .card .sub { font-size: 12px; color: var(--text-muted); margin: 2px 0 10px; min-height: 15px; }
+  .cabecera { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; flex-wrap: wrap; }
+  .leyenda { display: flex; gap: 14px; font-size: 12px; color: var(--text-secondary); flex-wrap: wrap; }
+  .leyenda i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
+  svg text { fill: var(--text-muted); font-size: 11px; }
+  svg .eje { stroke: var(--border); }
+  svg .rejilla { stroke: var(--grid); }
+  .grafico { position: relative; width: 100%; }
+  .cargando .grafico, .cargando .kpis, .cargando table { opacity: .45; transition: opacity .15s; }
+  #tooltip {
+    position: fixed; z-index: 50; pointer-events: none; background: var(--surface-1); border: 1px solid var(--border);
+    border-radius: 8px; padding: 8px 10px; font-size: 12px; box-shadow: 0 6px 20px rgba(0,0,0,.18); display: none; min-width: 140px;
+  }
+  #tooltip .f { color: var(--text-muted); margin-bottom: 4px; }
+  #tooltip .r { display: flex; align-items: center; gap: 6px; margin: 2px 0; }
+  #tooltip .r b { font-weight: 650; color: var(--text-primary); }
+  #tooltip .r span { color: var(--text-secondary); }
+  #tooltip .k { width: 12px; height: 2px; border-radius: 1px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--grid); }
+  th { color: var(--text-secondary); font-weight: 600; font-size: 12px; position: sticky; top: 0; background: var(--surface-1); }
+  td.num, th.num { text-align: right; white-space: nowrap; }
+  .tabla-wrap { max-height: 420px; overflow: auto; }
+  .acciones { display: flex; gap: 8px; align-items: center; }
+  .acciones select { padding: 5px 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-1); font-size: 13px; }
+  .nota { font-size: 12px; color: var(--text-muted); }
+  .error { color: var(--critical); font-size: 14px; padding: 16px; }
+  .rank-fila { cursor: pointer; }
+  footer { margin-top: 20px; font-size: 12px; color: var(--text-muted); }
+  footer a { color: var(--accent); }
+</style>
+</head>
+<body>
+<div class="viz-root" id="app">
+  <nav><a href="index.html" class="activo">Demanda diaria</a><a href="od.html">Origen-destino</a></nav>
+  <header>
+    <h1>Demanda diaria de TransMilenio</h1>
+    <p id="subtitulo">Cargando datos…</p>
+  </header>
+
+  <div class="filtros" id="filtros"></div>
+
+  <div class="kpis" id="kpis"></div>
+
+  <div class="grid2">
+    <div class="card">
+      <div class="cabecera">
+        <div><h2>Validaciones por día</h2><div class="sub">Entradas al sistema registradas con tarjeta, por componente</div></div>
+        <div class="leyenda" id="leyenda-dia"></div>
+      </div>
+      <div class="grafico" id="g-dia"></div>
+    </div>
+    <div class="card">
+      <div class="cabecera">
+        <div><h2>Promedio por hora del día</h2><div class="sub" id="sub-hora">Validaciones promedio en cada hora</div></div>
+      </div>
+      <div class="grafico" id="g-hora"></div>
+    </div>
+  </div>
+
+  <div class="grid2">
+    <div class="card">
+      <div class="cabecera">
+        <div><h2 id="titulo-rank">Ranking</h2><div class="sub">Las 15 con más validaciones. Haz clic en una barra para filtrar por ella.</div></div>
+        <div class="acciones"><label class="nota" for="sel-rank">Ver por</label><select id="sel-rank"></select></div>
+      </div>
+      <div class="grafico" id="g-rank"></div>
+    </div>
+    <div class="card">
+      <div class="cabecera">
+        <div><h2>Tabla de datos</h2><div class="sub" id="sub-tabla"></div></div>
+        <div class="acciones"><button class="chip" id="btn-csv">Descargar CSV</button></div>
+      </div>
+      <div class="tabla-wrap"><table id="tabla"></table></div>
+    </div>
+  </div>
+
+  <footer id="pie"></footer>
+  <div id="tooltip" role="status"></div>
+</div>
+
+<script type="module">
+import * as duckdb from "https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@1.33.1-dev57.0/+esm";
+
+const RUTA_DATOS = "datos/";
+const COLORES_COMPONENTE = { Troncal: "--series-1", Zonal: "--series-2", Dual: "--series-3" };
+const fmt = new Intl.NumberFormat("es-CO");
+const fmtPct = new Intl.NumberFormat("es-CO", { style: "percent", maximumFractionDigits: 1, signDisplay: "always" });
+const fmtDinero = new Intl.NumberFormat("es-CO", { style: "currency", currency: "COP", maximumFractionDigits: 0 });
+const fmtCorto = v => v >= 1e6 ? (v / 1e6).toLocaleString("es-CO", { maximumFractionDigits: 1 }) + " M"
+  : v >= 1e3 ? (v / 1e3).toLocaleString("es-CO", { maximumFractionDigits: 0 }) + " mil" : fmt.format(Math.round(v));
+const DIAS_SEM = ["dom", "lun", "mar", "mié", "jue", "vie", "sáb"];
+const css = n => getComputedStyle(document.getElementById("app")).getPropertyValue(n).trim();
+const colorComp = c => css(COLORES_COMPONENTE[c] || "--text-muted");
+const q = s => "'" + String(s).replace(/'/g, "''") + "'";
+const id = s => '"' + String(s).replace(/"/g, '""') + '"';
+const el = (tag, attrs = {}, ...hijos) => {
+  const e = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) {
+    if (k === "class") e.className = v; else if (k.startsWith("on")) e.addEventListener(k.slice(2), v); else e.setAttribute(k, v);
+  }
+  for (const h of hijos) e.append(h);
+  return e;
+};
+const NS = "http://www.w3.org/2000/svg";
+const s = (tag, attrs = {}) => { const e = document.createElementNS(NS, tag); for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v); return e; };
+
+// ---------- estado ----------
+let indice, conn, db;
+const estado = { desde: null, hasta: null, preset: 7, filtros: {}, rank: "Operador" };
+const cargados = new Set();
+let ultimoRank = [];
+
+// ---------- inicio ----------
+async function iniciar() {
+  try {
+    const r = await fetch(RUTA_DATOS + "indice.json", { cache: "no-store" });
+    if (!r.ok) throw new Error("Aún no hay datos publicados (indice.json).");
+    indice = await r.json();
+    if (!indice.dias.length) throw new Error("El índice no tiene días todavía.");
+
+    const bundles = duckdb.getJsDelivrBundles();
+    const bundle = await duckdb.selectBundle(bundles);
+    const workerUrl = URL.createObjectURL(new Blob([`importScripts("${bundle.mainWorker}");`], { type: "text/javascript" }));
+    db = new duckdb.AsyncDuckDB(new duckdb.VoidLogger(), new Worker(workerUrl));
+    await db.instantiate(bundle.mainModule, bundle.pthreadWorker);
+    URL.revokeObjectURL(workerUrl);
+    conn = await db.connect();
+
+    const fechas = indice.dias.map(d => d.fecha);
+    estado.hasta = fechas[fechas.length - 1];
+    aplicarPreset(7);
+    document.getElementById("subtitulo").textContent =
+      `Fuente: datos abiertos de TRANSMILENIO S.A. · Datos del ${fechaLarga(fechas[0])} al ${fechaLarga(estado.hasta)} · Actualizado: ${indice.actualizado}`;
+    document.getElementById("pie").append(
+      "Una validación es una entrada al sistema registrada con tarjeta (troncal: torniquete de estación; zonal: validador del bus). No incluye colados. ",
+      "Datos: ", el("a", { href: "https://storage.googleapis.com/validaciones_tmsa/validaciones_diarias.html", target: "_blank", rel: "noopener" }, "Validaciones diarias – Datos Abiertos TRANSMILENIO S.A."));
+
+    const sel = document.getElementById("sel-rank");
+    for (const d of indice.dimensiones) sel.append(el("option", { value: d.columna }, d.nombre));
+    sel.value = indice.dimensiones.some(d => d.columna === "Operador") ? "Operador" : indice.dimensiones[0].columna;
+    estado.rank = sel.value;
+    sel.addEventListener("change", () => { estado.rank = sel.value; actualizar(); });
+    document.getElementById("btn-csv").addEventListener("click", descargarCSV);
+    document.addEventListener("click", e => { if (!e.target.closest(".rango")) cerrarPaneles(); });
+
+    await actualizar();
+  } catch (e) {
+    console.error(e);
+    document.getElementById("subtitulo").replaceChildren(el("span", { class: "error" }, "No se pudo cargar el dashboard: " + e.message));
+  }
+}
+
+function fechaLarga(f) {
+  return new Date(f + "T12:00:00").toLocaleDateString("es-CO", { day: "numeric", month: "short", year: "numeric" });
+}
+function sumarDias(f, n) { const d = new Date(f + "T12:00:00"); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); }
+
+function aplicarPreset(n) {
+  const fechas = indice.dias.map(d => d.fecha);
+  const ultimo = fechas[fechas.length - 1];
+  estado.preset = n;
+  estado.hasta = ultimo;
+  estado.desde = n === 0 ? fechas[0] : sumarDias(ultimo, -(n - 1));
+  if (estado.desde < fechas[0]) estado.desde = fechas[0];
+}
+
+// ---------- datos ----------
+async function asegurarArchivos() {
+  const dias = indice.dias.filter(d => d.fecha >= estado.desde && d.fecha <= estado.hasta).map(d => d.fecha.replaceAll("-", ""));
+  const nuevos = [];
+  for (const f of dias) for (const p of ["dia", "hora"]) {
+    const nombre = `${p}_${f}.parquet`;
+    if (!cargados.has(nombre)) nuevos.push(nombre);
+  }
+  await Promise.all(nuevos.map(async nombre => {
+    const r = await fetch(RUTA_DATOS + nombre);
+    if (!r.ok) return;
+    await db.registerFileBuffer(nombre, new Uint8Array(await r.arrayBuffer()));
+    cargados.add(nombre);
+  }));
+  const lista = p => dias.map(f => `${p}_${f}.parquet`).filter(n => cargados.has(n));
+  const ld = lista("dia"), lh = lista("hora");
+  if (!ld.length) throw new Error("No hay archivos para ese rango de fechas.");
+  const clave = ld.join(",");
+  if (clave === tablasDe) return;   // ya están cargados estos días
+  tablasDe = clave;
+  await conn.query(`CREATE OR REPLACE TABLE dia AS SELECT * FROM read_parquet([${ld.map(q).join(",")}], union_by_name=true)`);
+  if (lh.length) await conn.query(`CREATE OR REPLACE TABLE hora AS SELECT * FROM read_parquet([${lh.map(q).join(",")}], union_by_name=true)`);
+  else await conn.query(`CREATE OR REPLACE TABLE hora AS SELECT NULL::DATE AS fecha, NULL::INT AS hora, 0::BIGINT AS validaciones WHERE false`);
+  columnasHora = new Set((await consulta("DESCRIBE hora")).map(r => r.column_name));
+  columnasDia = new Set((await consulta("DESCRIBE dia")).map(r => r.column_name));
+}
+let columnasHora = new Set(), columnasDia = new Set(), tablasDe = null;
+
+async function consulta(sql) {
+  const t = await conn.query(sql);
+  return t.toArray().map(r => {
+    const o = r.toJSON();
+    for (const k in o) if (typeof o[k] === "bigint") o[k] = Number(o[k]);
+    return o;
+  });
+}
+
+function donde(excluir = null, tabla = "dia") {
+  const cols = tabla === "hora" ? columnasHora : columnasDia;
+  const partes = [];
+  for (const [col, vals] of Object.entries(estado.filtros)) {
+    if (col === excluir || !vals.size) continue;
+    if (!cols.has(col)) { if (tabla === "hora") continue; else { partes.push("false"); continue; } }
+    partes.push(`${id(col)} IN (${[...vals].map(q).join(",")})`);
+  }
+  return partes.length ? "WHERE " + partes.join(" AND ") : "";
+}
+
+// ---------- actualizar todo ----------
+let corriendo = null;
+async function actualizar() {
+  const app = document.getElementById("app");
+  app.classList.add("cargando");
+  const yo = corriendo = Symbol();
+  try {
+    await asegurarArchivos();
+    if (yo !== corriendo) return;
+    pintarFiltros();
+    const w = donde();
+    const [porDia, porHora, rank, total] = await Promise.all([
+      consulta(`SELECT strftime(fecha, '%Y-%m-%d') AS f, "Componente" AS c, sum(validaciones)::DOUBLE AS v FROM dia ${w} GROUP BY 1, 2 ORDER BY 1`),
+      consulta(`SELECT hora AS h, (sum(validaciones) / count(DISTINCT fecha))::DOUBLE AS v FROM hora ${donde(null, "hora")} GROUP BY 1 HAVING hora >= 0 ORDER BY 1`),
+      columnasDia.has(estado.rank)
+        ? consulta(`SELECT ${id(estado.rank)} AS k, sum(validaciones)::DOUBLE AS v, sum(recaudo)::DOUBLE AS r FROM dia ${w} GROUP BY 1 ORDER BY 2 DESC LIMIT 1000`)
+        : Promise.resolve([]),
+      consulta(`SELECT coalesce(sum(validaciones), 0)::DOUBLE AS v, coalesce(sum(recaudo), 0)::DOUBLE AS r FROM dia ${w}`),
+    ]);
+    if (yo !== corriendo) return;
+    pintarKPIs(porDia, total[0]);
+    pintarDia(porDia);
+    pintarHora(porHora);
+    pintarRank(rank, total[0].v);
+  } catch (e) {
+    console.error(e);
+    document.getElementById("kpis").replaceChildren(el("div", { class: "error" }, "Error: " + e.message));
+  } finally {
+    if (yo === corriendo) app.classList.remove("cargando");
+  }
+}
+
+// ---------- filtros ----------
+function cerrarPaneles(excepto) {
+  document.querySelectorAll(".panel.abierto").forEach(p => { if (p !== excepto) p.classList.remove("abierto"); });
+}
+
+function pintarFiltros() {
+  const cont = document.getElementById("filtros");
+  cont.replaceChildren();
+
+  // rango de fechas
+  const presets = [[1, "Último día"], [7, "Últimos 7 días"], [30, "Últimos 30 días"], [90, "Últimos 90 días"], [0, "Todo lo disponible"]];
+  const etiqueta = estado.preset != null ? presets.find(p => p[0] === estado.preset)[1] : `${fechaLarga(estado.desde)} – ${fechaLarga(estado.hasta)}`;
+  const panelF = el("div", { class: "panel" });
+  for (const [n, txt] of presets) {
+    panelF.append(el("button", { class: "preset", onclick: () => { aplicarPreset(n); cerrarPaneles(); actualizar(); } },
+      el("span", { class: "check" }, estado.preset === n ? "✓" : ""), txt));
+  }
+  const fechas = indice.dias.map(d => d.fecha);
+  const inDesde = el("input", { type: "date", min: fechas[0], max: fechas.at(-1), value: estado.desde });
+  const inHasta = el("input", { type: "date", min: fechas[0], max: fechas.at(-1), value: estado.hasta });
+  panelF.append(el("div", { class: "pie", style: "display:block" },
+    el("div", { class: "fechas" }, el("div", {}, el("span", {}, "Desde"), inDesde), el("div", {}, el("span", {}, "Hasta"), inHasta)),
+    el("button", { onclick: () => {
+      if (!inDesde.value || !inHasta.value) return;
+      estado.desde = inDesde.value <= inHasta.value ? inDesde.value : inHasta.value;
+      estado.hasta = inDesde.value <= inHasta.value ? inHasta.value : inDesde.value;
+      estado.preset = null; cerrarPaneles(); actualizar();
+    } }, "Aplicar rango personalizado")));
+  const btnF = el("button", { class: "chip activo", onclick: e => { e.stopPropagation(); cerrarPaneles(panelF); panelF.classList.toggle("abierto"); } }, "📅 " + etiqueta);
+  cont.append(el("div", { class: "rango" }, btnF, panelF), el("div", { class: "sep" }));
+
+  // un filtro por cada columna de los archivos
+  for (const d of indice.dimensiones) {
+    const sel = estado.filtros[d.columna] || new Set();
+    const panel = el("div", { class: "panel" });
+    const btn = el("button", { class: "chip" + (sel.size ? " activo" : ""), onclick: async e => {
+      e.stopPropagation();
+      const abrir = !panel.classList.contains("abierto");
+      cerrarPaneles(panel);
+      if (abrir) { panel.classList.add("abierto"); await llenarPanel(panel, d); }
+      else panel.classList.remove("abierto");
+    } }, d.nombre);
+    if (sel.size) btn.append(el("span", { class: "n" }, String(sel.size)));
+    cont.append(el("div", { class: "rango" }, btn, panel));
+  }
+  if (Object.values(estado.filtros).some(v => v.size)) {
+    cont.append(el("button", { class: "chip limpiar", onclick: () => { estado.filtros = {}; actualizar(); } }, "Limpiar filtros"));
+  }
+}
+
+async function llenarPanel(panel, d) {
+  panel.replaceChildren(el("div", { class: "nota" }, "Cargando opciones…"));
+  panel.addEventListener("click", e => e.stopPropagation());
+  const opciones = await consulta(`SELECT ${id(d.columna)} AS k, sum(validaciones)::DOUBLE AS v FROM dia ${donde(d.columna)} GROUP BY 1 ORDER BY 2 DESC`);
+  const sel = new Set(estado.filtros[d.columna] || []);
+  const buscar = el("input", { type: "search", placeholder: `Buscar en ${d.nombre.toLowerCase()}…` });
+  const lista = el("div", { class: "lista" });
+  const pintar = () => {
+    const t = buscar.value.trim().toLowerCase();
+    lista.replaceChildren();
+    const visibles = opciones.filter(o => !t || String(o.k).toLowerCase().includes(t));
+    for (const o of visibles.slice(0, 300)) {
+      const cb = el("input", { type: "checkbox" });
+      cb.checked = sel.has(o.k);
+      cb.addEventListener("change", () => { cb.checked ? sel.add(o.k) : sel.delete(o.k); });
+      lista.append(el("label", {}, cb, el("span", {}, String(o.k)), el("span", { class: "v" }, fmtCorto(o.v))));
+    }
+    if (visibles.length > 300) lista.append(el("div", { class: "nota", style: "padding:6px" }, `y ${fmt.format(visibles.length - 300)} más: escribe para buscar`));
+    if (!visibles.length) lista.append(el("div", { class: "nota", style: "padding:6px" }, "Sin resultados"));
+  };
+  buscar.addEventListener("input", pintar);
+  pintar();
+  const aplicar = () => { estado.filtros[d.columna] = new Set(sel); cerrarPaneles(); actualizar(); };
+  panel.replaceChildren(buscar, lista, el("div", { class: "pie" },
+    el("button", { onclick: () => { sel.clear(); pintar(); } }, "Quitar selección"),
+    el("button", { onclick: aplicar, style: "font-weight:600" }, "Aplicar")));
+  buscar.focus();
+}
+
+// ---------- KPIs ----------
+function pintarKPIs(porDia, total) {
+  const porFecha = new Map();
+  for (const r of porDia) porFecha.set(r.f, (porFecha.get(r.f) || 0) + r.v);
+  const fechas = [...porFecha.keys()].sort();
+  const n = fechas.length || 1;
+  const ultimo = fechas.at(-1);
+  const valUlt = porFecha.get(ultimo) || 0;
+  const k = (t, v, sub) => el("div", { class: "card kpi" }, el("div", { class: "t" }, t), el("div", { class: "v" }, v), el("div", { class: "s" }, sub));
+  const tarjetas = [
+    k("Validaciones en el periodo", fmtCorto(total.v), `${fmt.format(total.v)} en ${n} día${n > 1 ? "s" : ""}`),
+    k("Promedio diario", fmtCorto(total.v / n), "Validaciones por día con datos"),
+  ];
+  if (ultimo) {
+    const antes = porFecha.get(sumarDias(ultimo, -7));
+    tarjetas.push(k(`Último día (${DIAS_SEM[new Date(ultimo + "T12:00:00").getDay()]} ${fechaLarga(ultimo)})`, fmtCorto(valUlt),
+      antes ? `${fmtPct.format(valUlt / antes - 1)} frente al mismo día de la semana anterior` : fmt.format(valUlt) + " validaciones"));
+  }
+  tarjetas.push(k("Recaudo nominal", fmtDinero.format(total.r), "Suma del valor de las validaciones (tarifa)"));
+  document.getElementById("kpis").replaceChildren(...tarjetas);
+}
+
+// ---------- tooltip ----------
+const tip = document.getElementById("tooltip");
+function mostrarTip(ev, titulo, filas) {
+  tip.replaceChildren(el("div", { class: "f" }, titulo));
+  for (const [color, valor, nombre] of filas) {
+    const k = el("i", { class: "k" }); k.style.background = color || "transparent";
+    tip.append(el("div", { class: "r" }, k, el("b", {}, valor), el("span", {}, nombre)));
+  }
+  tip.style.display = "block";
+  const w = tip.offsetWidth, h = tip.offsetHeight;
+  let x = ev.clientX + 14, y = ev.clientY + 14;
+  if (x + w > innerWidth - 8) x = ev.clientX - w - 14;
+  if (y + h > innerHeight - 8) y = ev.clientY - h - 14;
+  tip.style.left = x + "px"; tip.style.top = y + "px";
+}
+const ocultarTip = () => { tip.style.display = "none"; };
+
+function escala(max) {
+  if (max <= 0) return { max: 1, ticks: [0, 1] };
+  const paso0 = max / 4, p = Math.pow(10, Math.floor(Math.log10(paso0)));
+  const paso = [1, 2, 2.5, 5, 10].map(m => m * p).find(v => v >= paso0);
+  const tope = Math.ceil(max / paso) * paso;
+  const ticks = []; for (let v = 0; v <= tope + 1e-9; v += paso) ticks.push(v);
+  return { max: tope, ticks };
+}
+
+// rectángulo con esquinas superiores redondeadas (dato anclado a la base)
+function barraV(x, y, w, h, r) {
+  r = Math.min(r, w / 2, h);
+  return `M${x},${y + h}V${y + r}Q${x},${y} ${x + r},${y}H${x + w - r}Q${x + w},${y} ${x + w},${y + r}V${y + h}Z`;
+}
+function barraH(x, y, w, h, r) {
+  r = Math.min(r, h / 2, w);
+  return `M${x},${y}H${x + w - r}Q${x + w},${y} ${x + w},${y + r}V${y + h - r}Q${x + w},${y + h} ${x + w - r},${y + h}H${x}Z`;
+}
+
+// ---------- gráfico por día (barras apiladas por componente) ----------
+function pintarDia(porDia) {
+  const cont = document.getElementById("g-dia");
+  const comps = ["Troncal", "Zonal", "Dual"].filter(c => porDia.some(r => r.c === c));
+  for (const r of porDia) if (!comps.includes(r.c)) comps.push(r.c);
+  const fechas = [...new Set(porDia.map(r => r.f))].sort();
+  const val = new Map(porDia.map(r => [r.f + "|" + r.c, r.v]));
+  const totales = fechas.map(f => comps.reduce((a, c) => a + (val.get(f + "|" + c) || 0), 0));
+
+  const ley = document.getElementById("leyenda-dia");
+  ley.replaceChildren(...comps.map(c => { const i = el("i"); i.style.background = colorComp(c); return el("span", {}, i, c); }));
+
+  const W = Math.max(cont.clientWidth, 320), H = 280, m = { t: 10, r: 8, b: 34, l: 52 };
+  const svg = s("svg", { width: W, height: H, viewBox: `0 0 ${W} ${H}`, role: "img", "aria-label": "Validaciones por día" });
+  if (!fechas.length) { cont.replaceChildren(el("div", { class: "nota" }, "No hay datos con estos filtros.")); return; }
+  const { max, ticks } = escala(Math.max(...totales));
+  const iw = W - m.l - m.r, ih = H - m.t - m.b;
+  const y = v => m.t + ih - (v / max) * ih;
+  for (const t of ticks) {
+    svg.append(s("line", { x1: m.l, x2: W - m.r, y1: y(t), y2: y(t), class: t === 0 ? "eje" : "rejilla" }));
+    const tx = s("text", { x: m.l - 6, y: y(t) + 4, "text-anchor": "end" }); tx.textContent = fmtCorto(t); svg.append(tx);
+  }
+  const banda = iw / fechas.length, bw = Math.max(2, Math.min(36, banda * 0.72));
+  const cadaN = Math.ceil(fechas.length / Math.max(1, Math.floor(iw / 56)));
+  fechas.forEach((f, i) => {
+    const x = m.l + i * banda + (banda - bw) / 2;
+    let acum = 0;
+    const g = s("g");
+    comps.forEach((c, j) => {
+      const v = val.get(f + "|" + c) || 0;
+      if (!v) return;
+      const y0 = y(acum), y1 = y(acum + v);
+      acum += v;
+      const esTope = comps.slice(j + 1).every(cc => !(val.get(f + "|" + cc)));
+      const alto = Math.max(0, y0 - y1 - (j > 0 ? 0 : 0));
+      const gap = acum > v ? 2 : 0; // separación de 2px entre segmentos
+      const d = esTope ? barraV(x, y1, bw, Math.max(0, alto - gap), 4) : `M${x},${y1}h${bw}v${Math.max(0, alto - gap)}h${-bw}Z`;
+      g.append(s("path", { d, fill: colorComp(c) }));
+    });
+    // área de interacción (toda la columna)
+    const hit = s("rect", { x: m.l + i * banda, y: m.t, width: banda, height: ih, fill: "transparent", tabindex: 0 });
+    const filas = () => [...comps.map(c => [colorComp(c), fmt.format(val.get(f + "|" + c) || 0), c]), ["", fmt.format(totales[i]), "Total"]];
+    const titulo = `${DIAS_SEM[new Date(f + "T12:00:00").getDay()]} ${fechaLarga(f)}`;
+    hit.addEventListener("pointermove", ev => { g.style.opacity = .85; mostrarTip(ev, titulo, filas()); });
+    hit.addEventListener("pointerleave", () => { g.style.opacity = 1; ocultarTip(); });
+    hit.addEventListener("focus", () => { const b = hit.getBoundingClientRect(); mostrarTip({ clientX: b.x + b.width / 2, clientY: b.y + 20 }, titulo, filas()); });
+    hit.addEventListener("blur", ocultarTip);
+    svg.append(g, hit);
+    if (i % cadaN === 0) {
+      const d = new Date(f + "T12:00:00");
+      const tx = s("text", { x: m.l + i * banda + banda / 2, y: H - m.b + 15, "text-anchor": "middle" });
+      tx.textContent = `${d.getDate()} ${d.toLocaleDateString("es-CO", { month: "short" }).replace(".", "")}`;
+      const tx2 = s("text", { x: m.l + i * banda + banda / 2, y: H - m.b + 28, "text-anchor": "middle" });
+      tx2.textContent = DIAS_SEM[d.getDay()];
+      svg.append(tx, tx2);
+    }
+  });
+  cont.replaceChildren(svg);
+}
+
+// ---------- gráfico por hora (línea) ----------
+function pintarHora(porHora) {
+  const cont = document.getElementById("g-hora");
+  const noAplica = Object.entries(estado.filtros).filter(([c, v]) => v.size && !columnasHora.has(c))
+    .map(([c]) => (indice.dimensiones.find(d => d.columna === c) || { nombre: c }).nombre);
+  document.getElementById("sub-hora").textContent = noAplica.length
+    ? `Validaciones promedio en cada hora. Este gráfico no aplica el filtro de: ${noAplica.join(", ")}.`
+    : "Validaciones promedio en cada hora en los días seleccionados";
+  const W = Math.max(cont.clientWidth, 280), H = 280, m = { t: 14, r: 12, b: 34, l: 48 };
+  if (!porHora.length) { cont.replaceChildren(el("div", { class: "nota" }, "No hay datos por hora con estos filtros.")); return; }
+  const v = new Map(porHora.map(r => [r.h, r.v]));
+  const horas = Array.from({ length: 24 }, (_, h) => h);
+  const { max, ticks } = escala(Math.max(...porHora.map(r => r.v)));
+  const iw = W - m.l - m.r, ih = H - m.t - m.b;
+  const x = h => m.l + (h / 23) * iw, y = val => m.t + ih - (val / max) * ih;
+  const svg = s("svg", { width: W, height: H, viewBox: `0 0 ${W} ${H}`, role: "img", "aria-label": "Validaciones promedio por hora" });
+  for (const t of ticks) {
+    svg.append(s("line", { x1: m.l, x2: W - m.r, y1: y(t), y2: y(t), class: t === 0 ? "eje" : "rejilla" }));
+    const tx = s("text", { x: m.l - 6, y: y(t) + 4, "text-anchor": "end" }); tx.textContent = fmtCorto(t); svg.append(tx);
+  }
+  for (const h of [0, 4, 8, 12, 16, 20, 23]) {
+    const tx = s("text", { x: x(h), y: H - m.b + 16, "text-anchor": "middle" }); tx.textContent = `${h}h`; svg.append(tx);
+  }
+  const color = css("--series-1");
+  const dPath = horas.map((h, i) => `${i ? "L" : "M"}${x(h)},${y(v.get(h) || 0)}`).join("");
+  svg.append(s("path", { d: dPath, fill: "none", stroke: color, "stroke-width": 2, "stroke-linejoin": "round" }));
+  // máximo: etiqueta directa
+  const pico = porHora.reduce((a, b) => b.v > a.v ? b : a);
+  const tp = s("text", { x: x(pico.h), y: y(pico.v) - 8, "text-anchor": pico.h > 18 ? "end" : "middle", style: "fill:var(--text-secondary);font-weight:600" });
+  tp.textContent = `Pico ${pico.h}h: ${fmtCorto(pico.v)}`;
+  svg.append(tp);
+  const cruz = s("line", { y1: m.t, y2: m.t + ih, stroke: "var(--text-muted)", "stroke-width": 1, visibility: "hidden" });
+  const punto = s("circle", { r: 4, fill: color, stroke: "var(--surface-1)", "stroke-width": 2, visibility: "hidden" });
+  const hit = s("rect", { x: m.l, y: m.t, width: iw, height: ih, fill: "transparent" });
+  hit.addEventListener("pointermove", ev => {
+    const r = svg.getBoundingClientRect();
+    const h = Math.max(0, Math.min(23, Math.round(((ev.clientX - r.left) * (W / r.width) - m.l) / iw * 23)));
+    cruz.setAttribute("x1", x(h)); cruz.setAttribute("x2", x(h)); cruz.setAttribute("visibility", "visible");
+    punto.setAttribute("cx", x(h)); punto.setAttribute("cy", y(v.get(h) || 0)); punto.setAttribute("visibility", "visible");
+    mostrarTip(ev, `${h}:00 – ${h}:59`, [[color, fmt.format(Math.round(v.get(h) || 0)), "validaciones promedio"]]);
+  });
+  hit.addEventListener("pointerleave", () => { cruz.setAttribute("visibility", "hidden"); punto.setAttribute("visibility", "hidden"); ocultarTip(); });
+  svg.append(cruz, punto, hit);
+  cont.replaceChildren(svg);
+}
+
+// ---------- ranking + tabla ----------
+function pintarRank(rank, total) {
+  ultimoRank = rank;
+  const nombreDim = (indice.dimensiones.find(d => d.columna === estado.rank) || { nombre: estado.rank }).nombre;
+  document.getElementById("titulo-rank").textContent = `Validaciones por ${nombreDim.toLowerCase()}`;
+  const cont = document.getElementById("g-rank");
+  const top = rank.slice(0, 15);
+  if (!top.length) { cont.replaceChildren(el("div", { class: "nota" }, "No hay datos con estos filtros.")); }
+  else {
+    const W = Math.max(cont.clientWidth, 300), fila = 26, m = { t: 4, r: 70, l: Math.min(230, W * 0.42) };
+    const H = m.t + top.length * fila + 4;
+    const max = top[0].v || 1, iw = W - m.l - m.r;
+    const svg = s("svg", { width: W, height: H, viewBox: `0 0 ${W} ${H}`, role: "img", "aria-label": `Ranking por ${nombreDim}` });
+    const seleccion = estado.filtros[estado.rank] || new Set();
+    top.forEach((r, i) => {
+      const yy = m.t + i * fila, bh = 16, by = yy + (fila - bh) / 2;
+      const g = s("g", { class: "rank-fila", tabindex: 0 });
+      const lab = s("text", { x: m.l - 8, y: by + 12, "text-anchor": "end", style: "fill:var(--text-secondary)" });
+      const txt = String(r.k);
+      lab.textContent = txt.length > 32 ? txt.slice(0, 31) + "…" : txt;
+      const w = Math.max(2, (r.v / max) * iw);
+      const barra = s("path", { d: barraH(m.l, by, w, bh, 4), fill: css("--series-1"), opacity: seleccion.size && !seleccion.has(r.k) ? .35 : 1 });
+      const val = s("text", { x: m.l + w + 6, y: by + 12, style: "fill:var(--text-primary)" });
+      val.textContent = fmtCorto(r.v);
+      const hit = s("rect", { x: 0, y: yy, width: W, height: fila, fill: "transparent" });
+      g.append(lab, barra, val, hit);
+      const filas = () => [[css("--series-1"), fmt.format(r.v), "validaciones"], ["", (r.v / total * 100).toLocaleString("es-CO", { maximumFractionDigits: 1 }) + " %", "del total filtrado"]];
+      g.addEventListener("pointermove", ev => { barra.style.filter = "brightness(1.12)"; mostrarTip(ev, txt, filas()); });
+      g.addEventListener("pointerleave", () => { barra.style.filter = ""; ocultarTip(); });
+      const alternar = () => {
+        const set = new Set(estado.filtros[estado.rank] || []);
+        set.has(r.k) ? set.delete(r.k) : set.add(r.k);
+        estado.filtros[estado.rank] = set; ocultarTip(); actualizar();
+      };
+      g.addEventListener("click", alternar);
+      g.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); alternar(); } });
+      svg.append(g);
+    });
+    cont.replaceChildren(svg);
+  }
+
+  // tabla
+  const tabla = document.getElementById("tabla");
+  tabla.replaceChildren(el("thead", {}, el("tr", {}, el("th", {}, nombreDim), el("th", { class: "num" }, "Validaciones"), el("th", { class: "num" }, "% del total"), el("th", { class: "num" }, "Recaudo nominal"))));
+  const cuerpo = el("tbody");
+  for (const r of rank.slice(0, 500)) {
+    cuerpo.append(el("tr", {}, el("td", {}, String(r.k)), el("td", { class: "num" }, fmt.format(r.v)),
+      el("td", { class: "num" }, total ? (r.v / total * 100).toLocaleString("es-CO", { maximumFractionDigits: 2 }) + " %" : "–"),
+      el("td", { class: "num" }, fmtDinero.format(r.r || 0))));
+  }
+  tabla.append(cuerpo);
+  document.getElementById("sub-tabla").textContent = `${fmt.format(rank.length)} valores de ${nombreDim.toLowerCase()}${rank.length > 500 ? " (se muestran 500; el CSV trae todos)" : ""}`;
+}
+
+function descargarCSV() {
+  const nombreDim = (indice.dimensiones.find(d => d.columna === estado.rank) || { nombre: estado.rank }).nombre;
+  const esc = v => `"${String(v).replace(/"/g, '""')}"`;
+  const lineas = [[nombreDim, "Validaciones", "Recaudo nominal"].map(esc).join(";")];
+  for (const r of ultimoRank) lineas.push([esc(r.k), Math.round(r.v), Math.round(r.r || 0)].join(";"));
+  const blob = new Blob(["﻿" + lineas.join("\n")], { type: "text/csv;charset=utf-8" });
+  const a = el("a", { href: URL.createObjectURL(blob), download: `transmilenio_${estado.rank}_${estado.desde}_${estado.hasta}.csv` });
+  document.body.append(a); a.click(); a.remove();
+}
+
+let tRes;
+addEventListener("resize", () => { clearTimeout(tRes); tRes = setTimeout(() => indice && conn && actualizar(), 250); });
+matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => indice && conn && actualizar());
+iniciar();
+</script>
+</body>
+</html>

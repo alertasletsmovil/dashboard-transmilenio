@@ -1,0 +1,602 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Origen-destino TransMilenio</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
+<style>
+  .viz-root {
+    color-scheme: light;
+    --page: #f4f4f2; --surface-1: #fcfcfb; --surface-2: #f0efec; --border: #e2e1dc; --grid: #ebeae6;
+    --text-primary: #0b0b0b; --text-secondary: #52514e; --text-muted: #77766f;
+    --accent: #2a78d6; --flujo: #eb6834; --critical: #c62828;
+  }
+  @media (prefers-color-scheme: dark) {
+    .viz-root {
+      color-scheme: dark;
+      --page: #121211; --surface-1: #1a1a19; --surface-2: #252523; --border: #34342f; --grid: #2a2a27;
+      --text-primary: #f0efec; --text-secondary: #c3c2b7; --text-muted: #96958c;
+      --accent: #3987e5; --flujo: #d95926; --critical: #e66767;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; }
+  .viz-root { font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; background: var(--page); color: var(--text-primary);
+    min-height: 100vh; padding: 24px clamp(12px, 3vw, 40px) 48px; font-variant-numeric: tabular-nums; }
+  nav { display: flex; gap: 4px; margin-bottom: 14px; }
+  nav a { padding: 6px 12px; border-radius: 8px; text-decoration: none; color: var(--text-secondary); font-size: 14px; }
+  nav a.activo { background: var(--surface-1); color: var(--text-primary); border: 1px solid var(--border); font-weight: 600; }
+  header h1 { font-size: 22px; margin: 0 0 4px; font-weight: 650; }
+  header p { margin: 0; color: var(--text-secondary); font-size: 13px; }
+  .filtros { display: flex; flex-wrap: wrap; gap: 14px; align-items: flex-end; margin: 18px 0 16px; }
+  .filtros label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--text-secondary); }
+  select, button { font: inherit; color: inherit; }
+  .filtros select { padding: 6px 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-1); font-size: 13px; min-width: 150px; }
+  .seg { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: var(--surface-1); }
+  .seg button { border: 0; background: none; padding: 6px 12px; font-size: 13px; cursor: pointer; }
+  .seg button.activo { background: var(--accent); color: #fff; }
+  .chip { border: 1px dashed var(--border); background: var(--surface-1); border-radius: 8px; padding: 6px 10px; font-size: 13px; cursor: pointer; color: var(--text-secondary); }
+  .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; margin-bottom: 12px; }
+  .card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 12px; padding: 16px; }
+  .kpi .t { font-size: 12px; color: var(--text-secondary); }
+  .kpi .v { font-size: 26px; font-weight: 650; margin-top: 4px; }
+  .kpi .s { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+  .card h2 { font-size: 15px; margin: 0; font-weight: 620; }
+  .card .sub { font-size: 12px; color: var(--text-muted); margin: 2px 0 10px; }
+  .cabecera { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; flex-wrap: wrap; }
+  .grid-mapa { display: grid; grid-template-columns: 1.55fr 1fr; gap: 12px; margin-bottom: 12px; }
+  @media (max-width: 1000px) { .grid-mapa { grid-template-columns: 1fr; } }
+  #mapa { height: 620px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface-2); }
+  .leaflet-container { font-family: inherit; }
+  .etq-loc { background: transparent; border: 0; box-shadow: none; font-size: 11px; font-weight: 600; color: #1f1f1d;
+    text-shadow: 0 0 3px #fff, 0 0 3px #fff, 0 0 2px #fff; padding: 0; }
+  .etq-loc::before { display: none; }
+  .leyenda-mapa { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text-secondary); margin-top: 8px; flex-wrap: wrap; }
+  .rampa { width: 160px; height: 10px; border-radius: 3px; }
+  .linea-k { display: inline-block; width: 22px; height: 3px; border-radius: 2px; background: var(--flujo); vertical-align: middle; }
+  .seleccion { font-size: 13px; padding: 8px 10px; border-radius: 8px; background: var(--surface-2); margin-bottom: 10px; display: flex; justify-content: space-between; gap: 8px; align-items: center; }
+  .seleccion b { font-weight: 650; }
+  .seleccion button { border: 0; background: none; color: var(--accent); cursor: pointer; font-size: 12px; }
+  table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  th, td { text-align: left; padding: 5px 7px; border-bottom: 1px solid var(--grid); }
+  th { color: var(--text-secondary); font-weight: 600; font-size: 12px; position: sticky; top: 0; background: var(--surface-1); z-index: 1; }
+  td.num, th.num { text-align: right; white-space: nowrap; }
+  .tabla-wrap { max-height: 520px; overflow: auto; }
+  .barra-mini { height: 6px; border-radius: 3px; background: var(--accent); }
+  .matriz-wrap { overflow: auto; max-height: 640px; }
+  .matriz { border-collapse: separate; border-spacing: 2px; font-size: 11px; }
+  .matriz th, .matriz td { border: 0; padding: 0; }
+  .matriz th.col { writing-mode: vertical-rl; transform: rotate(180deg); height: 120px; text-align: left; padding: 4px 0; font-weight: 600; white-space: nowrap; }
+  .matriz th.fila { text-align: right; padding-right: 6px; white-space: nowrap; cursor: pointer; position: sticky; left: 0; background: var(--surface-1); }
+  .matriz th.fila:hover { color: var(--accent); }
+  .matriz td.c { width: 46px; height: 26px; text-align: center; border-radius: 3px; cursor: default; }
+  .matriz td.tot, .matriz th.tot { text-align: right; padding: 0 6px; font-weight: 600; color: var(--text-secondary); }
+  .nota { font-size: 12px; color: var(--text-muted); }
+  .error { color: var(--critical); font-size: 14px; padding: 16px; }
+  .cargando .card, .cargando .kpis { opacity: .5; transition: opacity .15s; }
+  #tooltip { position: fixed; z-index: 1000; pointer-events: none; background: var(--surface-1); border: 1px solid var(--border);
+    border-radius: 8px; padding: 8px 10px; font-size: 12px; box-shadow: 0 6px 20px rgba(0,0,0,.18); display: none; max-width: 300px; }
+  #tooltip .f { color: var(--text-muted); margin-bottom: 4px; }
+  #tooltip b { font-weight: 650; }
+  footer { margin-top: 20px; font-size: 12px; color: var(--text-muted); line-height: 1.5; }
+  footer a { color: var(--accent); }
+</style>
+</head>
+<body>
+<div class="viz-root" id="app">
+  <nav><a href="index.html">Demanda diaria</a><a href="od.html" class="activo">Origen-destino</a></nav>
+  <header>
+    <h1>Matriz origen-destino de TransMilenio</h1>
+    <p id="subtitulo">Cargando datos…</p>
+  </header>
+
+  <div class="filtros">
+    <label>Día<select id="f-dia"></select></label>
+    <label>Franja horaria (inicio del viaje)<select id="f-periodo"></select></label>
+    <label>Componente donde empieza el viaje<select id="f-comp"><option value="">Todos</option><option>Troncal</option><option>Zonal</option><option>Dual</option></select></label>
+    <label>Colorear el mapa por
+      <span class="seg" id="f-modo"><button data-v="origen" class="activo">Orígenes</button><button data-v="destino">Destinos</button></span></label>
+    <label>Puntos en el mapa
+      <span class="seg" id="f-puntos"><button data-v="no" class="activo">Ocultar</button><button data-v="si">Estaciones y paraderos</button></span></label>
+  </div>
+
+  <div class="kpis" id="kpis"></div>
+
+  <div class="grid-mapa">
+    <div class="card">
+      <div class="cabecera"><div><h2>Mapa de Bogotá por localidades</h2>
+        <div class="sub">Haz clic en una localidad para ver a dónde van (o de dónde vienen) sus viajes. Con los puntos activos, haz clic en una estación o paradero.</div></div></div>
+      <div id="mapa"></div>
+      <div class="leyenda-mapa" id="leyenda-mapa"></div>
+    </div>
+    <div class="card">
+      <div class="cabecera"><div><h2 id="titulo-lista">Viajes por localidad</h2><div class="sub" id="sub-lista"></div></div></div>
+      <div id="seleccion"></div>
+      <div class="tabla-wrap"><table id="tabla-lista"></table></div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-bottom:12px">
+    <div class="cabecera">
+      <div><h2>Matriz origen-destino por localidad</h2><div class="sub">Filas: localidad donde empieza el viaje. Columnas: localidad de destino. Haz clic en el nombre de una fila para verla en el mapa.</div></div>
+      <button class="chip" id="btn-csv">Descargar matriz (CSV)</button>
+    </div>
+    <div class="matriz-wrap" id="matriz"></div>
+  </div>
+
+  <div class="card">
+    <div class="cabecera"><div><h2>Parejas estación/paradero más frecuentes</h2><div class="sub" id="sub-pares"></div></div>
+      <button class="chip" id="btn-csv-pares">Descargar parejas (CSV)</button></div>
+    <div class="tabla-wrap"><table id="tabla-pares"></table></div>
+  </div>
+
+  <footer id="pie"></footer>
+  <div id="tooltip"></div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+<script type="module">
+import * as duckdb from "https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@1.33.1-dev57.0/+esm";
+
+const RUTA = "datos/";
+const RAMPA = ["#cde2fb", "#9ec5f4", "#6da7ec", "#3987e5", "#256abf", "#184f95", "#0d366b"];
+const fmt = new Intl.NumberFormat("es-CO");
+const pct = v => (v * 100).toLocaleString("es-CO", { maximumFractionDigits: 1 }) + " %";
+const corto = v => v >= 1e6 ? (v / 1e6).toLocaleString("es-CO", { maximumFractionDigits: 1 }) + " M"
+  : v >= 1e4 ? Math.round(v / 1e3).toLocaleString("es-CO") + " mil" : fmt.format(Math.round(v));
+const css = n => getComputedStyle(document.getElementById("app")).getPropertyValue(n).trim();
+const q = s => "'" + String(s).replace(/'/g, "''") + "'";
+const el = (tag, attrs = {}, ...hijos) => {
+  const e = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) {
+    if (k === "class") e.className = v; else if (k === "style") e.style.cssText = v;
+    else if (k.startsWith("on")) e.addEventListener(k.slice(2), v); else e.setAttribute(k, v);
+  }
+  for (const h of hijos) if (h != null) e.append(h);
+  return e;
+};
+const oscuro = () => matchMedia("(prefers-color-scheme: dark)").matches;
+const colorRampa = t => RAMPA[Math.max(0, Math.min(RAMPA.length - 1, Math.floor(t * RAMPA.length - 1e-9)))];
+
+let indice, conn, db, geo, puntos = {}, mapa, capaLoc, capaFlujos, capaPuntos, centroides = {};
+const estado = { dias: [], periodo: null, comp: "", modo: "origen", verPuntos: false, loc: null, punto: null };
+const cargados = new Set();
+let datosLoc = [], datosPun = [];
+
+// ---------------- inicio ----------------
+async function iniciar() {
+  try {
+    const [ri, rg] = await Promise.all([fetch(RUTA + "indice.json", { cache: "no-store" }), fetch("localidades.geojson")]);
+    if (!ri.ok) throw new Error("Aún no hay datos publicados.");
+    indice = await ri.json();
+    geo = await rg.json();
+    const rp = await fetch(RUTA + "puntos.json", { cache: "no-store" });
+    puntos = rp.ok ? await rp.json() : {};
+    const diasOD = indice.dias.filter(d => d.od);
+    if (!diasOD.length) throw new Error("Todavía no hay días con origen-destino calculado. Espera la próxima actualización.");
+    const cfg = indice.origen_destino;
+
+    const bundle = await duckdb.selectBundle(duckdb.getJsDelivrBundles());
+    const wurl = URL.createObjectURL(new Blob([`importScripts("${bundle.mainWorker}");`], { type: "text/javascript" }));
+    db = new duckdb.AsyncDuckDB(new duckdb.VoidLogger(), new Worker(wurl));
+    await db.instantiate(bundle.mainModule, bundle.pthreadWorker);
+    conn = await db.connect();
+
+    // filtros
+    const fd = document.getElementById("f-dia");
+    const fechas = diasOD.map(d => d.fecha).reverse();
+    const dia = f => new Date(f + "T12:00:00").toLocaleDateString("es-CO", { weekday: "short", day: "numeric", month: "short", year: "numeric" });
+    for (const f of fechas) fd.append(el("option", { value: f }, dia(f)));
+    fd.append(el("option", { value: "ult7" }, "Últimos 7 días (promedio diario)"));
+    fd.append(el("option", { value: "habiles" }, "Días hábiles disponibles (promedio)"));
+    fd.addEventListener("change", () => { fijarDias(fd.value); actualizar(); });
+    fijarDias(fechas[0]);
+    const fp = document.getElementById("f-periodo");
+    fp.append(el("option", { value: cfg.todo_el_dia }, cfg.todo_el_dia));
+    for (const p of cfg.periodos) fp.append(el("option", { value: p }, p));
+    estado.periodo = cfg.todo_el_dia;
+    fp.addEventListener("change", () => { estado.periodo = fp.value; actualizar(); });
+    document.getElementById("f-comp").addEventListener("change", e => { estado.comp = e.target.value; actualizar(); });
+    for (const [idSeg, clave, conv] of [["f-modo", "modo", v => v], ["f-puntos", "verPuntos", v => v === "si"]]) {
+      const seg = document.getElementById(idSeg);
+      seg.addEventListener("click", e => {
+        const b = e.target.closest("button"); if (!b) return;
+        seg.querySelectorAll("button").forEach(x => x.classList.toggle("activo", x === b));
+        estado[clave] = conv(b.dataset.v); estado.punto = null; pintar();
+      });
+    }
+    document.getElementById("btn-csv").addEventListener("click", csvMatriz);
+    document.getElementById("btn-csv-pares").addEventListener("click", csvPares);
+
+    document.getElementById("subtitulo").textContent =
+      `Viajes inferidos a partir de las validaciones de cada tarjeta · ${diasOD.length} días disponibles · Actualizado: ${indice.actualizado}`;
+    document.getElementById("pie").append(
+      `Cómo se calcula: se ordenan las validaciones de cada tarjeta en el día; validaciones separadas por ${cfg.minutos_transbordo} minutos o menos son transbordos del mismo viaje. `,
+      "El origen es el punto donde empieza el viaje y el destino es el punto donde esa tarjeta empieza su siguiente viaje (para el último viaje del día, el origen del primero). ",
+      "Las tarjetas con un solo viaje en el día no tienen destino y no se cuentan. ",
+      `Por privacidad no se publican tarjetas ni viajes individuales, y se omiten las parejas con menos de ${cfg.min_viajes_publicar} viajes. `,
+      "Los viajes en buses duales no tienen paradero, por eso aparecen como “(sin ubicación)”. ",
+      el("br"), "Mapa: localidades de Bogotá (IDECA) · base © OpenStreetMap © CARTO · coordenadas de estaciones y paraderos: Datos Abiertos TRANSMILENIO S.A.");
+
+    crearMapa();
+    await actualizar();
+  } catch (e) {
+    console.error(e);
+    document.getElementById("subtitulo").replaceChildren(el("span", { class: "error" }, "No se pudo cargar: " + e.message));
+  }
+}
+
+function fijarDias(v) {
+  const dias = indice.dias.filter(d => d.od).map(d => d.fecha);
+  if (v === "ult7") estado.dias = dias.slice(-7);
+  else if (v === "habiles") estado.dias = dias.filter(f => { const w = new Date(f + "T12:00:00").getDay(); return w > 0 && w < 6; });
+  else estado.dias = [v];
+}
+
+async function consulta(sql) {
+  const t = await conn.query(sql);
+  return t.toArray().map(r => { const o = r.toJSON(); for (const k in o) if (typeof o[k] === "bigint") o[k] = Number(o[k]); return o; });
+}
+
+async function cargarTablas() {
+  const nombres = [];
+  for (const f of estado.dias) for (const p of ["od_loc", "od_pun"]) nombres.push(`${p}_${f.replaceAll("-", "")}.parquet`);
+  await Promise.all(nombres.filter(n => !cargados.has(n)).map(async n => {
+    const r = await fetch(RUTA + n); if (!r.ok) return;
+    await db.registerFileBuffer(n, new Uint8Array(await r.arrayBuffer())); cargados.add(n);
+  }));
+  const l = p => nombres.filter(n => n.startsWith(p + "_") && cargados.has(n)).map(q).join(",");
+  if (!l("od_loc")) throw new Error("No hay archivos de origen-destino para esa fecha.");
+  await conn.query(`CREATE OR REPLACE TABLE od_loc AS SELECT * FROM read_parquet([${l("od_loc")}])`);
+  await conn.query(`CREATE OR REPLACE TABLE od_pun AS SELECT * FROM read_parquet([${l("od_pun")}])`);
+}
+
+// ---------------- datos ----------------
+let corriendo;
+async function actualizar() {
+  const app = document.getElementById("app"); app.classList.add("cargando");
+  const yo = corriendo = Symbol();
+  try {
+    await cargarTablas();
+    const n = estado.dias.length;
+    const wLoc = [];
+    if (estado.periodo !== indice.origen_destino.todo_el_dia) wLoc.push(`periodo = ${q(estado.periodo)}`);
+    if (estado.comp) wLoc.push(`comp_origen = ${q(estado.comp)}`);
+    const w = wLoc.length ? "WHERE " + wLoc.join(" AND ") : "";
+    // parejas por punto: el componente se deduce del prefijo del punto (T: troncal, Z: zonal)
+    const pref = { Troncal: "T:", Zonal: "Z:", Dual: "Dual:" }[estado.comp];
+    const wPun = [`periodo = ${q(estado.periodo)}`]; if (pref) wPun.push(`starts_with(origen, ${q(pref)})`);
+    [datosLoc, datosPun] = await Promise.all([
+      consulta(`SELECT loc_origen AS o, loc_destino AS d, sum(viajes)::DOUBLE / ${n} AS v, sum(con_transbordo)::DOUBLE / ${n} AS t FROM od_loc ${w} GROUP BY 1, 2`),
+      consulta(`SELECT origen AS o, destino AS d, sum(viajes)::DOUBLE / ${n} AS v FROM od_pun WHERE ${wPun.join(" AND ")} GROUP BY 1, 2 ORDER BY 3 DESC`),
+    ]);
+    if (yo !== corriendo) return;
+    pintar();
+  } catch (e) {
+    console.error(e);
+    document.getElementById("kpis").replaceChildren(el("div", { class: "error" }, "Error: " + e.message));
+  } finally { if (yo === corriendo) app.classList.remove("cargando"); }
+}
+
+// ---------------- mapa ----------------
+function centroide(geom) {
+  // centroide del polígono más grande (fórmula del área)
+  let mejor = null, mejorA = 0;
+  for (const poly of geom.coordinates) {
+    const r = poly[0]; let a = 0, cx = 0, cy = 0;
+    for (let i = 0, j = r.length - 1; i < r.length; j = i++) {
+      const f = r[j][0] * r[i][1] - r[i][0] * r[j][1]; a += f; cx += (r[j][0] + r[i][0]) * f; cy += (r[j][1] + r[i][1]) * f;
+    }
+    if (Math.abs(a) > mejorA) { mejorA = Math.abs(a); mejor = [cy / (3 * a), cx / (3 * a)]; }
+  }
+  return mejor;
+}
+
+function crearMapa() {
+  mapa = L.map("mapa", { zoomControl: true, preferCanvas: false, attributionControl: true });
+  const estilo = oscuro() ? "dark_all" : "light_all";
+  L.tileLayer(`https://{s}.basemaps.cartocdn.com/${estilo}/{z}/{x}/{y}{r}.png`, {
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a> · Localidades: IDECA',
+    subdomains: "abcd", maxZoom: 19,
+  }).addTo(mapa);
+  for (const f of geo.features) centroides[f.properties.localidad] = centroide(f.geometry);
+  // ajustes manuales de etiquetas (Usme y Ciudad Bolívar tienen mucha zona rural al sur)
+  // encuadre en la zona urbana de Bogotá (Sumapaz y el sur rural quedan fuera de la vista inicial)
+  mapa.fitBounds([[4.49, -74.215], [4.83, -74.01]]);
+  for (const [n, ll] of Object.entries({ "Usme": [4.50, -74.11], "Ciudad Bolívar": [4.53, -74.16] })) if (centroides[n]) centroides[n] = ll;
+  capaLoc = L.geoJSON(geo, {
+    style: () => ({ weight: 1.2, color: "#ffffff", fillOpacity: .75, fillColor: RAMPA[0] }),
+    onEachFeature: (f, capa) => {
+      const n = f.properties.localidad;
+      capa.on("click", () => { estado.loc = estado.loc === n ? null : n; estado.punto = null; pintar(); });
+      capa.on("mousemove", ev => tipLocalidad(ev.originalEvent, n));
+      capa.on("mouseout", ocultarTip);
+      if (n !== "Sumapaz") L.tooltip({ permanent: true, direction: "center", className: "etq-loc" }).setLatLng(centroides[n]).setContent(n).addTo(mapa);
+    },
+  }).addTo(mapa);
+  capaFlujos = L.layerGroup().addTo(mapa);
+  capaPuntos = L.layerGroup().addTo(mapa);
+}
+
+function totalesPorLocalidad(modo) {
+  const t = {};
+  for (const r of datosLoc) {
+    const k = modo === "origen" ? r.o : r.d;
+    t[k] = (t[k] || 0) + r.v;
+  }
+  return t;
+}
+
+function curva(a, b, n = 24) {
+  // arco cuadrático entre a y b (curva hacia la derecha del sentido del viaje)
+  const [la1, lo1] = a, [la2, lo2] = b;
+  const mx = (la1 + la2) / 2, my = (lo1 + lo2) / 2, dx = la2 - la1, dy = lo2 - lo1;
+  const cx = mx - dy * 0.18, cy = my + dx * 0.18;
+  const pts = [];
+  for (let i = 0; i <= n; i++) { const t = i / n, u = 1 - t; pts.push([u * u * la1 + 2 * u * t * cx + t * t * la2, u * u * lo1 + 2 * u * t * cy + t * t * lo2]); }
+  return pts;
+}
+
+function pintar() {
+  const modo = estado.modo;
+  const flujo = css("--flujo");
+  let valores, titulo;
+  // valores que colorean el mapa
+  if (estado.loc) {
+    valores = {};
+    for (const r of datosLoc) {
+      if (modo === "origen" && r.o === estado.loc) valores[r.d] = (valores[r.d] || 0) + r.v;
+      if (modo === "destino" && r.d === estado.loc) valores[r.o] = (valores[r.o] || 0) + r.v;
+    }
+  } else valores = totalesPorLocalidad(modo);
+  const max = Math.max(1, ...Object.entries(valores).filter(([k]) => centroides[k]).map(([, v]) => v));
+  capaLoc.setStyle(f => {
+    const n = f.properties.localidad, v = valores[n] || 0;
+    const sel = n === estado.loc;
+    return { weight: sel ? 3 : 1.2, color: sel ? flujo : (oscuro() ? "#1a1a19" : "#ffffff"), fillOpacity: v ? (estado.verPuntos ? .4 : .78) : .25,
+             fillColor: v ? colorRampa(Math.sqrt(v / max)) : (oscuro() ? "#2a2a27" : "#e2e1dc") };
+  });
+
+  // flujos
+  capaFlujos.clearLayers();
+  if (estado.loc && centroides[estado.loc]) {
+    const filas = Object.entries(valores).filter(([k, v]) => k !== estado.loc && centroides[k] && v > 0).sort((a, b) => b[1] - a[1]);
+    const vmax = filas.length ? filas[0][1] : 1;
+    for (const [k, v] of filas.slice(0, 19).reverse()) {
+      const a = modo === "origen" ? centroides[estado.loc] : centroides[k];
+      const b = modo === "origen" ? centroides[k] : centroides[estado.loc];
+      const linea = L.polyline(curva(a, b), { color: flujo, weight: 1.5 + 12 * (v / vmax), opacity: .8, lineCap: "round" }).addTo(capaFlujos);
+      linea.on("mousemove", ev => mostrarTip(ev.originalEvent, modo === "origen" ? `${estado.loc} → ${k}` : `${k} → ${estado.loc}`, [[fmt.format(Math.round(v)), "viajes por día"]]));
+      linea.on("mouseout", ocultarTip);
+      L.circleMarker(b, { radius: 3.5, color: flujo, fillColor: flujo, fillOpacity: 1, weight: 0 }).addTo(capaFlujos);
+    }
+  }
+  pintarPuntos();
+
+  // leyenda
+  const ley = document.getElementById("leyenda-mapa");
+  const rampa = el("span", { class: "rampa" }); rampa.style.background = `linear-gradient(90deg, ${RAMPA.join(",")})`;
+  const etiqueta = estado.loc ? (modo === "origen" ? `Viajes desde ${estado.loc} hacia cada localidad` : `Viajes hacia ${estado.loc} desde cada localidad`)
+    : (modo === "origen" ? "Viajes que empiezan en cada localidad" : "Viajes que terminan en cada localidad");
+  ley.replaceChildren(...[el("span", {}, etiqueta + ":"), el("span", {}, "pocos"), rampa, el("span", {}, `${corto(max)} por día`),
+    estado.loc ? el("span", {}, el("i", { class: "linea-k" }), " grosor = número de viajes") : null,
+    estado.verPuntos ? el("span", {}, "· puntos: ", el("b", { style: "color:#e34948" }, "●"), " estación troncal ", el("b", { style: "color:var(--accent)" }, "●"), " paradero zonal (tamaño = viajes)") : null].filter(Boolean));
+
+  pintarKPIs();
+  pintarLista(valores);
+  pintarMatriz();
+  pintarPares();
+}
+
+function pintarPuntos() {
+  capaPuntos.clearLayers();
+  if (!estado.verPuntos) return;
+  const acc = {};
+  for (const r of datosPun) { const k = estado.modo === "origen" ? r.o : r.d; acc[k] = (acc[k] || 0) + r.v; }
+  const lista = Object.entries(acc).filter(([k]) => puntos[k] && puntos[k].lat != null);
+  const max = Math.max(1, ...lista.map(x => x[1]));
+  const acento = css("--accent");
+  // líneas del punto seleccionado
+  if (estado.punto && puntos[estado.punto]?.lat != null) {
+    const p0 = puntos[estado.punto];
+    const pares = datosPun.filter(r => (estado.modo === "origen" ? r.o : r.d) === estado.punto && r.o !== r.d).slice(0, 30);
+    const vmax = pares.length ? pares[0].v : 1;
+    for (const r of pares) {
+      const otro = puntos[estado.modo === "origen" ? r.d : r.o]; if (!otro || otro.lat == null) continue;
+      const a = estado.modo === "origen" ? [p0.lat, p0.lon] : [otro.lat, otro.lon];
+      const b = estado.modo === "origen" ? [otro.lat, otro.lon] : [p0.lat, p0.lon];
+      const ln = L.polyline(curva(a, b), { color: css("--flujo"), weight: 1 + 7 * r.v / vmax, opacity: .85 }).addTo(capaPuntos);
+      ln.on("mousemove", ev => mostrarTip(ev.originalEvent, `${puntos[r.o]?.n || r.o} → ${puntos[r.d]?.n || r.d}`, [[fmt.format(Math.round(r.v)), "viajes por día"]]));
+      ln.on("mouseout", ocultarTip);
+    }
+  }
+  for (const [k, v] of lista.sort((a, b) => b[1] - a[1]).slice(0, 2500)) {
+    const p = puntos[k];
+    const c = L.circleMarker([p.lat, p.lon], {
+      radius: 2.5 + 12 * Math.sqrt(v / max), weight: k === estado.punto ? 3 : 1, color: oscuro() ? "#1a1a19" : "#ffffff",
+      fillColor: p.c === "Troncal" ? "#e34948" : acento, fillOpacity: .85,
+    }).addTo(capaPuntos);
+    c.on("mousemove", ev => mostrarTip(ev.originalEvent, `${p.c === "Troncal" ? "Estación troncal" : "Paradero zonal"} · ${p.loc}`,
+      [[p.n, ""], [fmt.format(Math.round(v)), estado.modo === "origen" ? "viajes por día empiezan aquí" : "viajes por día terminan aquí"]]));
+    c.on("mouseout", ocultarTip);
+    c.on("click", e => { L.DomEvent.stopPropagation(e); estado.punto = estado.punto === k ? null : k; pintarPuntos(); pintarLista(null); });
+  }
+}
+
+// ---------------- paneles ----------------
+function pintarKPIs() {
+  const dias = indice.dias.filter(d => estado.dias.includes(d.fecha) && d.od);
+  const n = dias.length || 1;
+  const s = k => dias.reduce((a, d) => a + (d.od[k] || 0), 0) / n;
+  const total = datosLoc.reduce((a, r) => a + r.v, 0);
+  const trans = datosLoc.reduce((a, r) => a + r.t, 0);
+  const k = (t, v, sub) => el("div", { class: "card kpi" }, el("div", { class: "t" }, t), el("div", { class: "v" }, v), el("div", { class: "s" }, sub));
+  const filtrado = estado.periodo !== indice.origen_destino.todo_el_dia || estado.comp;
+  document.getElementById("kpis").replaceChildren(
+    k("Viajes con origen y destino", corto(total), filtrado ? "Con los filtros elegidos, por día" : `${fmt.format(Math.round(total))} por día`),
+    k("Tarjetas que usaron el sistema", corto(s("tarjetas")), "Por día (todas, con o sin destino)"),
+    k("Viajes con transbordo", total ? pct(trans / total) : "–", "Dos o más validaciones en el mismo viaje"),
+    k("Viajes ubicados en el mapa", s("viajes_con_destino") ? pct(s("viajes_ubicados") / s("viajes_con_destino")) : "–", "Origen y destino con coordenadas"),
+  );
+}
+
+function pintarLista(valores) {
+  const sel = document.getElementById("seleccion");
+  const tabla = document.getElementById("tabla-lista");
+  const modo = estado.modo;
+  sel.replaceChildren();
+  if (estado.punto && puntos[estado.punto]) {
+    const p = puntos[estado.punto];
+    sel.append(el("div", { class: "seleccion" }, el("span", {}, (modo === "origen" ? "Desde " : "Hacia "), el("b", {}, p.n), ` (${p.loc})`),
+      el("button", { onclick: () => { estado.punto = null; pintar(); } }, "Quitar selección")));
+    const pares = datosPun.filter(r => (modo === "origen" ? r.o : r.d) === estado.punto);
+    const tot = pares.reduce((a, r) => a + r.v, 0);
+    document.getElementById("titulo-lista").textContent = modo === "origen" ? "Destinos desde este punto" : "Orígenes hacia este punto";
+    document.getElementById("sub-lista").textContent = `${fmt.format(Math.round(tot))} viajes por día (parejas con ${indice.origen_destino.min_viajes_publicar}+ viajes)`;
+    llenarTabla(tabla, ["Estación / paradero", "Localidad", "Viajes/día", "%"], pares.map(r => {
+      const o = puntos[modo === "origen" ? r.d : r.o] || { n: modo === "origen" ? r.d : r.o, loc: "" };
+      return [o.n, o.loc, r.v, tot ? r.v / tot : 0];
+    }));
+    return;
+  }
+  if (!valores) return pintar();
+  if (estado.loc) {
+    sel.append(el("div", { class: "seleccion" }, el("span", {}, modo === "origen" ? "Viajes que salen de " : "Viajes que llegan a ", el("b", {}, estado.loc)),
+      el("button", { onclick: () => { estado.loc = null; pintar(); } }, "Ver todas")));
+  }
+  const filas = Object.entries(valores).sort((a, b) => b[1] - a[1]);
+  const tot = filas.reduce((a, [, v]) => a + v, 0);
+  document.getElementById("titulo-lista").textContent = estado.loc ? (modo === "origen" ? "Destinos" : "Orígenes") : (modo === "origen" ? "Viajes que empiezan en cada localidad" : "Viajes que terminan en cada localidad");
+  document.getElementById("sub-lista").textContent = `${fmt.format(Math.round(tot))} viajes por día`;
+  llenarTabla(tabla, ["Localidad", "Viajes/día", "%"], filas.map(([k, v]) => [k, v, tot ? v / tot : 0]), k => { estado.loc = k; pintar(); });
+}
+
+function llenarTabla(tabla, cab, filas, alClic) {
+  tabla.replaceChildren(el("thead", {}, el("tr", {}, ...cab.map((c, i) => el("th", { class: i >= cab.length - 2 ? "num" : "" }, c)))));
+  const tb = el("tbody");
+  const vmax = Math.max(1, ...filas.map(f => f[f.length - 2]));
+  for (const f of filas.slice(0, 300)) {
+    const celdas = f.map((v, i) => {
+      if (i === f.length - 2) return el("td", { class: "num" }, fmt.format(Math.round(v)), el("div", { class: "barra-mini", style: `width:${Math.max(2, 100 * v / vmax)}%;margin-left:auto;margin-top:2px` }));
+      if (i === f.length - 1) return el("td", { class: "num" }, pct(v));
+      return el("td", {}, String(v));
+    });
+    const tr = el("tr", {}, ...celdas);
+    if (alClic && (centroides[f[0]])) { tr.style.cursor = "pointer"; tr.addEventListener("click", () => alClic(f[0])); }
+    tb.append(tr);
+  }
+  tabla.append(tb);
+}
+
+function ordenLocalidades() {
+  const nombres = geo.features.map(f => f.properties.localidad);
+  const extra = [...new Set(datosLoc.flatMap(r => [r.o, r.d]))].filter(n => !nombres.includes(n)).sort();
+  return [...nombres, ...extra];
+}
+
+function pintarMatriz() {
+  const cont = document.getElementById("matriz");
+  const m = new Map(datosLoc.map(r => [r.o + "|" + r.d, (0)]));
+  for (const r of datosLoc) m.set(r.o + "|" + r.d, (m.get(r.o + "|" + r.d) || 0) + r.v);
+  const usados = new Set(datosLoc.flatMap(r => [r.o, r.d]));
+  const locs = ordenLocalidades().filter(n => usados.has(n));
+  const max = Math.max(1, ...[...m.values()]);
+  const tabla = el("table", { class: "matriz" });
+  const cab = el("tr", {}, el("th", {}, el("span", { class: "nota" }, "Origen ↓  Destino →")));
+  for (const d of locs) cab.append(el("th", { class: "col" }, d));
+  cab.append(el("th", { class: "col tot" }, "Total"));
+  tabla.append(el("thead", {}, cab));
+  const tb = el("tbody");
+  const totCol = {};
+  for (const o of locs) {
+    const tr = el("tr", {}, el("th", { class: "fila", onclick: () => { estado.loc = o; estado.modo = "origen"; sincronizarSeg(); pintar(); document.getElementById("mapa").scrollIntoView({ behavior: "smooth", block: "center" }); } }, o));
+    let tot = 0;
+    for (const d of locs) {
+      const v = m.get(o + "|" + d) || 0; tot += v; totCol[d] = (totCol[d] || 0) + v;
+      const t = Math.sqrt(v / max);
+      const td = el("td", { class: "c" }, v ? corto(v) : "");
+      if (v) { td.style.background = colorRampa(t); td.style.color = t > 0.55 ? "#ffffff" : "#0b0b0b"; }
+      else td.style.background = "var(--surface-2)";
+      td.addEventListener("mousemove", ev => mostrarTip(ev, `${o} → ${d}`, [[fmt.format(Math.round(v)), "viajes por día"]]));
+      td.addEventListener("mouseleave", ocultarTip);
+      tr.append(td);
+    }
+    tr.append(el("td", { class: "tot" }, corto(tot)));
+    tb.append(tr);
+  }
+  const trT = el("tr", {}, el("th", { class: "fila tot" }, "Total"));
+  for (const d of locs) trT.append(el("td", { class: "tot", style: "text-align:center" }, corto(totCol[d] || 0)));
+  trT.append(el("td", { class: "tot" }, corto(Object.values(totCol).reduce((a, b) => a + b, 0))));
+  tb.append(trT);
+  tabla.append(tb);
+  cont.replaceChildren(tabla);
+}
+
+function pintarPares() {
+  const filas = datosPun.filter(r => r.o !== r.d).slice(0, 200);
+  document.getElementById("sub-pares").textContent = "Las 200 parejas con más viajes por día (sin contar regresos al mismo punto)";
+  const tabla = document.getElementById("tabla-pares");
+  tabla.replaceChildren(el("thead", {}, el("tr", {}, ...["Origen", "Localidad", "Destino", "Localidad", "Viajes/día"].map((c, i) => el("th", { class: i === 4 ? "num" : "" }, c)))));
+  const tb = el("tbody");
+  for (const r of filas) {
+    const o = puntos[r.o] || { n: r.o, loc: "" }, d = puntos[r.d] || { n: r.d, loc: "" };
+    tb.append(el("tr", {}, el("td", {}, o.n), el("td", {}, o.loc), el("td", {}, d.n), el("td", {}, d.loc), el("td", { class: "num" }, fmt.format(Math.round(r.v)))));
+  }
+  tabla.append(tb);
+}
+
+function sincronizarSeg() {
+  document.querySelectorAll("#f-modo button").forEach(b => b.classList.toggle("activo", b.dataset.v === estado.modo));
+}
+
+// ---------------- tooltip ----------------
+const tip = document.getElementById("tooltip");
+function mostrarTip(ev, titulo, filas) {
+  tip.replaceChildren(el("div", { class: "f" }, titulo), ...filas.map(([v, t]) => el("div", {}, el("b", {}, v), " ", el("span", {}, t))));
+  tip.style.display = "block";
+  const w = tip.offsetWidth, h = tip.offsetHeight;
+  let x = ev.clientX + 14, y = ev.clientY + 14;
+  if (x + w > innerWidth - 8) x = ev.clientX - w - 14;
+  if (y + h > innerHeight - 8) y = ev.clientY - h - 14;
+  tip.style.left = x + "px"; tip.style.top = y + "px";
+}
+function ocultarTip() { tip.style.display = "none"; }
+function tipLocalidad(ev, n) {
+  const sale = datosLoc.filter(r => r.o === n).reduce((a, r) => a + r.v, 0);
+  const llega = datosLoc.filter(r => r.d === n).reduce((a, r) => a + r.v, 0);
+  const interno = datosLoc.filter(r => r.o === n && r.d === n).reduce((a, r) => a + r.v, 0);
+  const filas = [[fmt.format(Math.round(sale)), "viajes empiezan aquí"], [fmt.format(Math.round(llega)), "viajes terminan aquí"], [fmt.format(Math.round(interno)), "dentro de la misma localidad"]];
+  if (estado.loc && estado.loc !== n) {
+    const v = datosLoc.filter(r => estado.modo === "origen" ? (r.o === estado.loc && r.d === n) : (r.d === estado.loc && r.o === n)).reduce((a, r) => a + r.v, 0);
+    filas.unshift([fmt.format(Math.round(v)), estado.modo === "origen" ? `viajes desde ${estado.loc}` : `viajes hacia ${estado.loc}`]);
+  }
+  mostrarTip(ev, n, filas);
+}
+
+// ---------------- CSV ----------------
+function bajar(nombre, lineas) {
+  const blob = new Blob(["﻿" + lineas.join("\n")], { type: "text/csv;charset=utf-8" });
+  const a = el("a", { href: URL.createObjectURL(blob), download: nombre }); document.body.append(a); a.click(); a.remove();
+}
+const esc = v => `"${String(v).replace(/"/g, '""')}"`;
+function sufijo() { return `${estado.dias[0]}${estado.dias.length > 1 ? "_" + estado.dias.at(-1) : ""}`; }
+function csvMatriz() {
+  const usados = new Set(datosLoc.flatMap(r => [r.o, r.d]));
+  const locs = ordenLocalidades().filter(n => usados.has(n));
+  const m = new Map(); for (const r of datosLoc) m.set(r.o + "|" + r.d, (m.get(r.o + "|" + r.d) || 0) + r.v);
+  const lineas = [["Origen \\ Destino", ...locs].map(esc).join(";")];
+  for (const o of locs) lineas.push([esc(o), ...locs.map(d => Math.round(m.get(o + "|" + d) || 0))].join(";"));
+  bajar(`matriz_od_localidades_${sufijo()}.csv`, lineas);
+}
+function csvPares() {
+  const lineas = [["Origen", "Localidad origen", "Destino", "Localidad destino", "Viajes por día"].map(esc).join(";")];
+  for (const r of datosPun) { const o = puntos[r.o] || { n: r.o, loc: "" }, d = puntos[r.d] || { n: r.d, loc: "" };
+    lineas.push([esc(o.n), esc(o.loc), esc(d.n), esc(d.loc), Math.round(r.v)].join(";")); }
+  bajar(`parejas_od_${sufijo()}.csv`, lineas);
+}
+
+iniciar();
+</script>
+</body>
+</html>
