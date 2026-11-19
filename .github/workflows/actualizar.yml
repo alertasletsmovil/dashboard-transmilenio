@@ -1,0 +1,84 @@
+name: Actualizar dashboard TransMilenio
+
+on:
+  schedule:
+    # Todos los días a las 7:17 a. m. y 6:17 p. m. hora Bogotá (12:17 y 23:17 UTC)
+    - cron: "17 12 * * *"
+    - cron: "17 23 * * *"
+  workflow_dispatch:          # permite correrlo a mano desde la pestaña "Actions"
+    inputs:
+      dias:
+        description: "Días hacia atrás a revisar (déjalo vacío para el valor normal)"
+        required: false
+        default: ""
+  push:
+    branches: [main]
+    paths: ["sitio/**", "*.py", ".github/workflows/**"]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: actualizar-dashboard
+  cancel-in-progress: false
+
+jobs:
+  actualizar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+      - name: Descargar el código
+        uses: actions/checkout@v4
+
+      - name: Traer los datos ya procesados (rama gh-pages)
+        uses: actions/checkout@v4
+        continue-on-error: true   # la primera vez esa rama todavía no existe
+        with:
+          ref: gh-pages
+          path: publicado
+
+      - name: Preparar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Instalar librerías
+        run: pip install -r requirements.txt
+
+      - name: Descargar y procesar datos de TransMilenio
+        run: |
+          rm -rf publicado/.git
+          if [ -n "${{ github.event.inputs.dias }}" ]; then
+            python procesar.py --salida publicado --dias "${{ github.event.inputs.dias }}"
+          else
+            python procesar.py --salida publicado
+          fi
+
+      - name: Copiar la página del dashboard
+        run: |
+          cp sitio/* publicado/
+          touch publicado/.nojekyll
+
+      - name: Mantener viva la tarea programada
+        # GitHub pausa las tareas programadas de repositorios públicos tras 60 días sin cambios.
+        # Si el último cambio tiene más de 45 días, se hace un registro vacío para evitarlo.
+        if: github.event_name == 'schedule'
+        run: |
+          ultimo=$(git log -1 --format=%ct)
+          ahora=$(date +%s)
+          if [ $(( (ahora - ultimo) / 86400 )) -gt 45 ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git commit --allow-empty -m "Mantener activa la actualización automática"
+            git push
+          fi
+
+      - name: Publicar en GitHub Pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./publicado
+          publish_branch: gh-pages
+          force_orphan: true      # no acumula historial: el repositorio no crece
+          commit_message: "Datos actualizados"
