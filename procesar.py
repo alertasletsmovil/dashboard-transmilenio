@@ -16,6 +16,8 @@ sección "CONFIGURACIÓN" de abajo.
 import argparse
 import json
 import os
+import re
+from urllib.parse import urljoin
 import shutil
 import sys
 import tempfile
@@ -37,6 +39,15 @@ FUENTES = {
     "Zonal":   "https://storage.googleapis.com/validaciones_tmsa/ValidacionZonal/validacionZonal{f}.zip",
     "Dual":    "https://storage.googleapis.com/validaciones_tmsa/ValidacionDual/validacionDual{f}.zip",
 }
+
+# Páginas índice donde TransMilenio lista los archivos de cada componente. El programa
+# las lee para encontrar la dirección real de cada archivo (por si cambia la carpeta).
+INDICES = {
+    "Troncal": "https://storage.googleapis.com/validaciones_tmsa/ValidacionTroncal.html",
+    "Zonal":   "https://storage.googleapis.com/validaciones_tmsa/ValidacionZonal.html",
+    "Dual":    "https://storage.googleapis.com/validaciones_tmsa/ValidacionDual.html",
+}
+BUCKET = "validaciones_tmsa"
 
 DIAS_PRIMERA_VEZ = 30    # la primera vez, cuántos días hacia atrás traer
 DIAS_A_REVISAR = 10      # en cada corrida, cuántos días recientes revisar por si faltan
@@ -82,6 +93,67 @@ def log(msg):
     print(msg, flush=True)
 
 
+URLS_DESCUBIERTAS = {}   # {componente: {"AAAAMMDD": url}}
+_avisados = set()
+
+
+def descubrir_archivos():
+    """Lee las páginas índice (y, si se puede, el listado del bucket) para saber qué
+    archivos hay publicados y en qué dirección exacta."""
+    for comp in FUENTES:
+        encontrados = {}
+        try:
+            r = requests.get(INDICES[comp], timeout=120)
+            log(f"Índice {comp}: respuesta {r.status_code} de {INDICES[comp]}")
+            if r.ok:
+                for href in re.findall(r'href=["\']([^"\']+?\.zip)["\']', r.text, flags=re.I):
+                    m = re.search(r"(\d{8})\.zip$", href)
+                    if m:
+                        encontrados[m.group(1)] = urljoin(INDICES[comp], href)
+                if not encontrados:  # nombres sin enlace: se arma la dirección con la plantilla
+                    for m in re.finditer(r"validacion\w*?(\d{8})\.zip", r.text, flags=re.I):
+                        encontrados.setdefault(m.group(1), None)
+        except requests.RequestException as e:
+            log(f"Índice {comp}: no se pudo leer ({e})")
+        try:  # listado público del bucket de Google Cloud (si TransMilenio lo permite)
+            api = f"https://storage.googleapis.com/storage/v1/b/{BUCKET}/o"
+            token, n = None, 0
+            while True:
+                params = {"prefix": f"Validacion{comp}/", "fields": "items(name),nextPageToken", "maxResults": 1000}
+                if token:
+                    params["pageToken"] = token
+                r = requests.get(api, params=params, timeout=120)
+                if not r.ok:
+                    if n == 0:
+                        log(f"Listado del bucket {comp}: respuesta {r.status_code}")
+                    break
+                data = r.json()
+                for it in data.get("items", []):
+                    m = re.search(r"(\d{8})\.zip$", it["name"])
+                    if m:
+                        encontrados[m.group(1)] = f"https://storage.googleapis.com/{BUCKET}/{it['name']}"
+                        n += 1
+                token = data.get("nextPageToken")
+                if not token:
+                    break
+            if n:
+                log(f"Listado del bucket {comp}: {n} archivos")
+        except Exception as e:  # noqa: BLE001
+            log(f"Listado del bucket {comp}: no disponible ({e})")
+        URLS_DESCUBIERTAS[comp] = {k: v for k, v in encontrados.items() if v}
+        if encontrados:
+            fechas = sorted(encontrados)
+            ejemplo = URLS_DESCUBIERTAS[comp].get(fechas[-1]) or FUENTES[comp].format(f=fechas[-1])
+            log(f"  {comp}: {len(fechas)} archivos publicados, del {fechas[0]} al {fechas[-1]}. Ejemplo: {ejemplo}")
+        else:
+            log(f"  {comp}: no se encontró la lista de archivos; se usa la dirección por defecto")
+
+
+def url_de(componente, fecha):
+    f = fecha.strftime("%Y%m%d")
+    return URLS_DESCUBIERTAS.get(componente, {}).get(f) or FUENTES[componente].format(f=f)
+
+
 def descargar(url, destino, intentos=3):
     """Descarga un archivo. Devuelve False si TransMilenio aún no lo ha publicado."""
     if url.startswith("file://"):  # modo prueba
@@ -94,6 +166,10 @@ def descargar(url, destino, intentos=3):
         try:
             with requests.get(url, stream=True, timeout=300) as r:
                 if r.status_code in (403, 404):
+                    clave = url.rsplit("/", 2)[-2] if "/" in url else url
+                    if clave not in _avisados:   # se muestra una vez por componente, para diagnosticar
+                        _avisados.add(clave)
+                        log(f"    (respuesta {r.status_code} de {url} :: {r.text[:200]!r})")
                     return False
                 r.raise_for_status()
                 with open(destino, "wb") as f:
@@ -197,7 +273,7 @@ def procesar_dia(fecha, carpeta_datos, trabajo, catalogo):
     od.crear_tabla_etapas(con)
     cargados, totales, todas_dims = [], {}, []
     for componente, plantilla in FUENTES.items():
-        url = plantilla.format(f=fecha.strftime("%Y%m%d"))
+        url = url_de(componente, fecha)
         zpath = os.path.join(trabajo, f"{componente}.zip")
         t0 = time.time()
         if not descargar(url, zpath):
@@ -277,9 +353,15 @@ def main():
             indice = json.load(f)
     por_fecha = {d["fecha"]: d for d in indice.get("dias", [])}
 
+    if not args.fuentes_locales:
+        descubrir_archivos()
     hoy = datetime.now(ZONA_BOGOTA).date()
     n = args.dias or (DIAS_A_REVISAR if por_fecha else DIAS_PRIMERA_VEZ)
     candidatos = [hoy - timedelta(days=i) for i in range(1, n + 1)]
+    # si TransMilenio publica con atraso, se toman también las fechas más recientes que sí estén publicadas
+    publicadas = sorted({f for c in URLS_DESCUBIERTAS.values() for f in c}, reverse=True)[:n]
+    candidatos += [d for d in (datetime.strptime(f, "%Y%m%d").date() for f in publicadas)
+                   if d not in candidatos and d < hoy]
     # días ya guardados que se procesaron antes de existir el origen-destino
     candidatos += [date.fromisoformat(f) for f, info in por_fecha.items()
                    if "od" not in info and date.fromisoformat(f) not in candidatos]
@@ -291,7 +373,7 @@ def main():
             continue
         faltan = [c for c in FUENTES if c not in info["componentes"]]
         # si a un día reciente le faltaba un componente, revisar si ya lo publicaron
-        if faltan and (hoy - d).days <= 5 and any(existe(FUENTES[c].format(f=d.strftime("%Y%m%d"))) for c in faltan):
+        if faltan and (hoy - d).days <= 5 and any(existe(url_de(c, d)) for c in faltan):
             pendientes.append(d)
 
     log(f"Días por revisar: {len(pendientes)}")

@@ -48,6 +48,8 @@ CATALOGOS = {
         "https://opendata.arcgis.com/api/v3/datasets/70b111e96b514bdfb36a7eb532d0eb4f_1/downloads/data?format=geojson&spatialRefId=4326",
         "https://datosabiertos-transmilenio.hub.arcgis.com/api/download/v1/items/70b111e96b514bdfb36a7eb532d0eb4f/geojson?layers=1",
         "https://opendata.arcgis.com/datasets/70b111e96b514bdfb36a7eb532d0eb4f_1.geojson",
+        "https://gis.transmilenio.gov.co/arcgis/rest/services/Zonal/consulta_paraderos_zonales/FeatureServer/0/query?where=1%3D1&outFields=*&outSR=4326&f=json",
+        "https://serviciosgis.catastrobogota.gov.co/arcgis/rest/services/Mapa_Referencia/Mapa_Referencia/MapServer/8/query?where=1%3D1&outFields=*&outSR=4326&f=json",
     ],
 }
 
@@ -114,14 +116,19 @@ def _bajar_geojson(url):
             return json.load(f)["features"]
     feats, offset = [], 0
     while True:
-        u = url + (f"&resultOffset={offset}&resultRecordCount=2000" if "/query?" in url else "")
+        u = url + (f"&resultOffset={offset}&resultRecordCount=1000" if "/query?" in url else "")
         r = requests.get(u, timeout=180)
         r.raise_for_status()
         data = r.json()
         if "features" not in data:
             raise ValueError(f"respuesta sin 'features': {str(data)[:200]}")
+        if "f=json" in url:  # formato JSON de ArcGIS: se convierte a GeoJSON
+            for ft in data["features"]:
+                g = ft.get("geometry") or {}
+                ft["properties"] = ft.pop("attributes", {})
+                ft["geometry"] = {"type": "Point", "coordinates": [g["x"], g["y"]]} if "x" in g else None
         feats += data["features"]
-        if "/query?" not in url or not data["features"] or not data.get("exceededTransferLimit", len(data["features"]) >= 2000):
+        if "/query?" not in url or not data["features"] or not data.get("exceededTransferLimit", len(data["features"]) >= 1000):
             break
         offset += len(data["features"])
     return feats
@@ -185,7 +192,8 @@ def preparar_catalogo(carpeta_datos, local_dir=""):
         with open(ruta, encoding="utf-8") as f:
             previo = json.load(f)
         edad = datetime.now() - datetime.fromisoformat(previo.get("actualizado", "2000-01-01T00:00:00"))
-        if edad < timedelta(days=DIAS_REFRESCAR_CATALOGO) and not local_dir:
+        completos = {v[4] for v in previo.get("puntos", {}).values()} >= set(CATALOGOS)
+        if edad < timedelta(days=DIAS_REFRESCAR_CATALOGO) and completos and not local_dir:
             log(f"Coordenadas: uso las guardadas ({len(previo['puntos']):,} puntos)")
             return previo["puntos"]
 
